@@ -1,5 +1,5 @@
-const { client } = require("../config/db");
-const cloudinary = require("../config/cloudinary");
+const { client } = require('../config/db');
+const cloudinary = require('../config/cloudinary');
 
 exports.addUser = async (req, res) => {
   try {
