@@ -10,14 +10,13 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env(process.env.DATABASE_URL_NAYEM)
+  url      = env("DATABASE_URL_NAYEM")
 }
 
-
-// prisma/schema.prisma
-
 model User {
-  id    Int    @id @default(autoincrement()) // Auto-incrementing primary key
-  name  String
-  email String @unique // Ensure email is unique
+  id       Int     @id @default(autoincrement())
+  email    String  @unique
+  name     String?
+  password String
+  createdAt DateTime @default(now())
 }

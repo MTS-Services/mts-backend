@@ -1,24 +1,34 @@
-const { client } = require('../config/db');
-const cloudinary = require('../config/cloudinary');
+const { PrismaClient } = require('@prisma/client');
+const prisma = new PrismaClient();
 
-exports.addUser = async (req, res) => {
+// Create a new user
+const createUser = async (req, res) => {
+  const { name, email, password } = req.body;
   try {
-  } catch (error) {}
+    const newUser = await prisma.user.create({
+      data: { name, email, password },
+    });
+    console.log(newUser);
+    res.status(201).json(newUser);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send('Error creating user');
+  }
 };
 
-// ✅ Get All Users API
-exports.getAllUsers = async (req, res) => {
+// Get Single users
+const getAllUsers = async (req, res) => {
   try {
-  } catch (error) {}
+    const users = await prisma.user.findMany();
+    res.json(users);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send('Error retrieving users');
+  }
 };
 
-// ✅ Update User API
-exports.updateUser = async (req, res) => {
-  try {
-  } catch (error) {}
-};
-
-exports.deleteUser = async (req, res) => {
-  try {
-  } catch (error) {}
+// Export functions correctly
+module.exports = {
+  createUser,
+  getAllUsers,
 };

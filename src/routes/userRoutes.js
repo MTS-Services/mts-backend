@@ -1,19 +1,12 @@
-const express = require("express");
-const {
-  addUser,
-  getAllUsers,
-  updateUser,
-  deleteUser,
-} = require("../controllers/userController");
-const uploadMulterMiddleware = require("../config/multer"); // Import the Hybrid Multer Setup
-
+const express = require('express');
 const router = express.Router();
 
-// ✅ Apply Multer Middleware
-router.post("/adduser", uploadMulterMiddleware, addUser);
+const { createUser, getAllUsers } = require('../controllers/userController');
 
-router.get("/allusers", getAllUsers);
-router.put("/userUpdate", updateUser);
-router.delete("/deleteuser", deleteUser);
+// ✅ User Routes
+router
+  .route('/') // Added /users prefix
+  .get(getAllUsers) // Get all users
+  .post(createUser); // Create a new user
 
 module.exports = router;
