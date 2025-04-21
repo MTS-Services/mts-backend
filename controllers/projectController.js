@@ -4,8 +4,9 @@ const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
 const { Socket } = require('socket.io-client');
-const { selesView_recent_month } = require('./profileController'); // Import the sales view function
+//const { selesView_recent_month } = require('./profileController'); // Import the sales view function
 const emitSalesData = require('../middlewares/salesEmitter'); // Import the sales emitter function
+const emitProjectDistributionCurrentMonth = require('../middlewares/projectEmitter'); // Import the project emitter function
 
 // Create an instance of express app
 const app = express();
@@ -94,19 +95,42 @@ const io = socketIo(server);  // Create a new instance of Socket.IO
             });
            
              
-              // ✅ Refetch the created project with department relation
-        const fullProject = await prisma.project.findUnique({
+            // Fetch all projects to emit the updated list
+            const projects = await prisma.project.findFirst({
             where: { id: project.id },
-            include: { department: true }
-        });
+            include: {
+                department: true,
+                team_member: {
+                    include: {
+                        profile: true,
+                    },
+                },
+            },
+
+            });
+            const formatDate = (date) =>
+              date ? new Date(date).toISOString().split('T')[0] : null;
+        
+            // Extract client name and format date fields
+            const projectsWithClientNames = [projects].map((project) => { // Changed from projects.map to [projects].map
+              const [clientName] = project.project_name.split('-');
+        
+              return {
+                ...project,
+                clientName,
+                date: formatDate(project.date),
+                deli_last_date: formatDate(project.deli_last_date),
+              };
+            });
       
 // Trigger the `selesView_recent_month` after the project is created
 
        
-console.log("fullProject",fullProject);
+console.log("fullProject",projectsWithClientNames);
             res.status(201).json({ message: 'Project created successfully.', project });
             
-            io.emit('projectCreated', fullProject); // ✅ Send full project with department name
+            io.emit('projectCreated', projectsWithClientNames); // ✅ Send full project with department name
+            await emitProjectDistributionCurrentMonth(io); // <-- call the helper that only emits via socket
             await emitSalesData(io); // <-- call the helper that only emits via socket
 
         } catch (error) {
@@ -331,50 +355,244 @@ exports.sendPaginatedProjectData = async (socket, page = 1, limit = 10) => {
     }
 };
 
+// exports.getClientSuggestionsFromProjects = async (req, res) => {
+//   const query = req.query.query; // Get the query from the request query string
+//   console.log("Query:", query); // Debugging the query for testing
+
+//   if (!query || query.trim().length < 1) {
+//     return res.status(400).json({ error: 'Query parameter is required.' });
+//   }
+
+//   try {
+//     // Fetch project names and filter by query
+//     const projects = await prisma.project.findMany({
+//       where: {
+//         project_name: {
+//           startsWith: query, // Assuming "clientName-orderId"
+//           mode: 'insensitive',
+//         },
+
+//       },
+//    take: 100
+//     })
+
+//     //console.log("Fetched Projects:", projects); // Debugging the raw fetched data
+
+//     // Extract client names from project names (assuming format is "clientName-orderId")
+//     const clientNames = projects.map(project => {
+//       const [clientName] = project.project_name.split('-'); // Extract the client name before the hyphen
+//       return clientName;
+//     });
+
+//     console.log("Client Names from Projects:", clientNames); // Debugging the client names extracted
+
+//     // // Filter client names based on the query
+//     // const filteredClientNames = clientNames.filter(clientName =>
+//     //   clientName.toLowerCase().startsWith(query.toLowerCase()) // Check if client name starts with the query
+//     // );
+
+//     // console.log("Filtered Client Names:", filteredClientNames); // Debugging the filtered client names
+
+//     // Remove duplicates by converting to a Set
+//     const uniqueClientNames = [...new Set(clientNames)];
+
+//     // // Fetch projects related to the filtered client names
+//     // const filteredProjects = await prisma.project.findMany({
+//     //   where: {
+//     //     project_name: {
+//     //       startsWith: uniqueClientNames.join('-'),  // Fetch projects for the filtered clients by matching the prefix
+//     //       mode: 'insensitive',
+//     //     },
+//     //   },
+  
+//     //   take: 100,  // Limit to 100 results
+//     // });
+
+//     //console.log("Unique Client Names:", uniqueClientNames); // Debugging the unique client names
+//     console.log("Filtered Projects:", uniqueClientNames); // Debugging the filtered projects
+//     return res.status(200).json( uniqueClientNames );  // Return filtered projects and client names
+
+//   } catch (error) {
+//     console.error('Error fetching client suggestions:', error);
+//     return res.status(500).json({ error: 'An error occurred while fetching client suggestions.' });
+//   }
+// };
 
 exports.getClientSuggestionsFromProjects = async (req, res) => {
-  const query = req.query.query; // Get the query from the request query string
-  console.log("Query:", query); // Debugging the query for testing
+  const query = req.query.query;
 
   if (!query || query.trim().length < 1) {
     return res.status(400).json({ error: 'Query parameter is required.' });
   }
 
   try {
-    // Fetch project names and filter by query
     const projects = await prisma.project.findMany({
       where: {
         project_name: {
-          contains: query,  // Filter project names that contain the query
-          mode: 'insensitive',  // Case-insensitive search
-        },
+          startsWith: query, // Or use `contains` for more flexible search
+          mode: 'insensitive',
+        }
       },
-      select: {
-        project_name: true,  // Only fetch the project_name field
-      },
-      take: 100,  // Limit to 100 suggestions
+      take: 100
     });
 
-    // Extract client names from project names (assuming format is "clientName-orderId")
     const clientNames = projects.map(project => {
-      const [clientName] = project.project_name.split('-'); // Extract the client name before the hyphen
+      const [clientName] = project.project_name.split('-');
       return clientName;
     });
 
+    const uniqueClientNames = [...new Set(clientNames)];
 
-    // This will include any client name that contains the query string "c"
-    // Filter client names based on the query
-    const filteredClientNames = clientNames.filter(clientName =>
-      clientName.toLowerCase().startsWith(query.toLowerCase()) // Check if client name starts with the query
-    );
+    return res.status(200).json({ uniqueClientNames });
 
-    // Remove duplicates by converting to a Set
-    const uniqueClientNames = [...new Set(filteredClientNames)];
-
-    console.log("Filtered Client Names:", uniqueClientNames); // Debugging the result
-    return res.status(200).json(uniqueClientNames);  // Return filtered and unique client names
   } catch (error) {
     console.error('Error fetching client suggestions:', error);
     return res.status(500).json({ error: 'An error occurred while fetching client suggestions.' });
+  }
+};
+
+
+
+exports.new_revision = async (req, res) => {
+  const { revision_comments, delivery_date } = req.body;
+  const { id: project_id } = req.params;
+
+  try {
+    const project = await prisma.project.findUnique({
+      where: { id: Number(project_id) },
+      include: { team: true }, // ✅ include the related team
+    });
+
+    if (!project) {
+      return res.status(404).json({ error: "Project not found" });
+    }
+
+    if (!project.team) {
+      return res.status(400).json({ error: "This project has no team assigned." });
+    }
+
+    // Update the project status to "revision"
+    const updatedProject = await prisma.project.update({
+      where: { id: Number(project_id) },
+      data: { status: 'revision' },
+    });
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    if (req.body.delivery_date) {
+      const deliveryDate = new Date(req.body.delivery_date);
+      deliveryDate.setHours(0, 0, 0, 0);
+      req.body.delivery_date = deliveryDate;
+    } else {
+      return res.status(400).json({ error: 'Delivery date is required.' });
+    }
+
+    if (req.body.metting_date) {
+      const meetingDate = new Date(req.body.metting_date);
+      meetingDate.setHours(0, 0, 0, 0);
+      req.body.metting_date = meetingDate;
+    }
+
+    const newRevision = await prisma.revision.create({
+      data: {
+        project_id: Number(project_id),
+        revision_date: today,
+        revision_comments,
+        delivery_date: req.body.delivery_date,
+        metting_link: req.body.metting_link || null,
+        metting_date: req.body.metting_date || null,
+        team: {
+          connect: [{ id: project.team.id }], // ✅ Correct way to connect the team
+        },
+      },
+    });
+
+    res.status(200).json({
+      message: 'Project status updated to revision and revision record created successfully.',
+      updatedProject,
+      newRevision,
+    });
+
+  } catch (error) {
+    console.error('Error updating project status to revision:', error);
+    res.status(500).json({ error: 'An error occurred while updating the project status.' });
+  }
+};
+
+
+exports.getRecentMonthProjects = async (req, res) => {
+  try {
+    const currentDate = new Date();
+    const startOfCurrentMonth = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
+    const endOfCurrentMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0);
+    endOfCurrentMonth.setHours(23, 59, 59, 999); // Set time to the end of the day (23:59:59.999) in local time
+    
+
+  }catch (error) {
+    console.error('Error fetching recent month projects:', error);
+    return res.status(500).json({ error: 'An error occurred while fetching recent month projects.' });
+  }
+};
+
+
+exports.projectDistribution = async (req, res) => {
+  try {
+
+
+    const currentDate = new Date();
+    const startOfCurrentMonth = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
+    const endOfCurrentMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0);
+    endOfCurrentMonth.setHours(23, 59, 59, 999);
+
+    const projectCurrent = await prisma.project.findMany({
+        where: {
+            date: {
+                gte: startOfCurrentMonth,
+                lte: endOfCurrentMonth
+            }
+        },
+        select: {
+            project_name: true,
+            after_fiverr_amount: true,
+            after_Fiverr_bonus: true            
+        }
+      
+        
+    });
+    console.log('Current Projects:', projectCurrent);
+
+  
+    res.status(200).json({ message: 'Project distribution data emitted successfully.', projectCurrent }); // <-- send a response after emitting data
+  }catch (err) {
+   res.status(500).json({ error: 'An error occurred while emitting project distribution data.' });
+    console.error('[Socket] Failed to emit project distribution data:', err);
+  }
+
+}
+
+
+exports.getProjectsByClientName = async (req, res) => {
+  const clientName = req.query.clientName;
+
+  if (!clientName) {
+    return res.status(400).json({ error: 'Client name is required' });
+  }
+
+  try {
+    const projects = await prisma.project.findMany({
+      where: {
+        project_name: {
+          startsWith: clientName,
+          mode: 'insensitive'
+        }
+      },
+      take: 100
+    });
+
+    return res.json({ projects });
+  } catch (err) {
+    console.error('Error fetching projects:', err);
+    return res.status(500).json({ error: 'Internal Server Error' });
   }
 };

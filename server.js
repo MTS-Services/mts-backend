@@ -12,6 +12,10 @@ initSocket(server); // ✅ Initialize Socket.IO here
 const cookieParser = require('cookie-parser');
 const verifyToken = require('./middlewares/jwt');
 
+app.use(cors());
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+app.use(express.static('public'));
 
 
 app.use(cors({
@@ -36,7 +40,7 @@ app.use((err, req, res, next) => {
   res.status(err.status || 500).json({ message: err.message || 'Something went wrong.' });
 });
 
-const host = "192.168.10.40";
+const host = "192.168.10.47";
 server.listen(3000, host, () => {
   console.log(`Server is running on http://${host}:3000`);
   console.log('Socket.IO server is running');
