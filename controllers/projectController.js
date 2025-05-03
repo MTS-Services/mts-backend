@@ -6,7 +6,10 @@ const socketIo = require("socket.io");
 const { Socket } = require("socket.io-client");
 //const { selesView_recent_month } = require('./profileController'); // Import the sales view function
 const emitSalesData = require("../middlewares/salesEmitter"); // Import the sales emitter function
+const totalOrdersCardData = require("../middlewares/projectCardEmitter"); // Import the total order card emitter function
 const emitProjectDistributionCurrentMonth = require("../middlewares/projectEmitter"); // Import the project emitter function
+const getTeamName = require("../middlewares/TeamName"); // Import the team name emitter function
+const getDepartmentName = require("../middlewares/TeamName"); // Import the department name emitter function
 
 // Create an instance of express app
 const app = express();
@@ -23,16 +26,17 @@ exports.createProject = async (req, res, io) => {
       sales_comments,
       opsleader_comments,
       sheet_link,
-      ordered_by,
       deli_last_date,
       status,
       orderAmount,
       bonus,
       rating,
+      ordered_by,
       department,
       project_requirements,
       profile,
-      order_id,
+      order_id
+     
     } = req.body;
 
     // Create orderId by using the current date and time
@@ -47,6 +51,8 @@ exports.createProject = async (req, res, io) => {
       where: { profile_name: profile },
     });
     console.log("profileData", profileData);
+
+
 
     //projectName and orderId are not allowed in the request body
     if (req.body.projectName) {
@@ -87,7 +93,7 @@ exports.createProject = async (req, res, io) => {
         opsleader_comments,
         sheet_link,
         team_member: {
-          connect: { id: ordered_by }, // Assuming the team member with ID 6 exists
+          connect: { id: ordered_by }, // Connect using the team member's ID
         },
         deli_last_date: deliLastDate,
         status,
@@ -111,6 +117,7 @@ exports.createProject = async (req, res, io) => {
       where: { id: project.id },
       include: {
         department: true,
+        team: true,
         team_member: {
           include: {
             profile: true,
@@ -138,6 +145,8 @@ console.log("fullProject",projectsWithClientNames);
     console.log("projectCreated",pp);
     await emitProjectDistributionCurrentMonth(io); // <-- call the helper that only emits via socket
     await emitSalesData(io); // <-- call the helper that only emits via socket
+    // Emit the total order card data
+    await totalOrdersCardData(io); // Emit the total order card data
 
   } catch (error) {
     res
@@ -149,16 +158,110 @@ console.log("fullProject",projectsWithClientNames);
 
 // Get all projects with pagination post method
 
-exports.getAllProjects = async (req, res) => {
-  try {
+// exports.getAllProjects = async (req, res,io) => {
+//   try {
 
-    //show all projects with  recent month projects
-    //ops_status ="revision"  will be shown in the project list  from also old month
+//     //show all projects with  recent month projects
+//     //ops_status ="revision"  will be shown in the project list  from also old month
+//     const currentDate = new Date();
+//     const startOfCurrentMonth = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
+//     const endOfCurrentMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0);
+//     endOfCurrentMonth.setHours(23, 59, 59, 999);
+
+
+// //count how many days left to delivery date
+// const daysLeft = (deli_last_date) => {
+//   const today = new Date();
+//   const deliveryDate = new Date(deli_last_date);
+//   const timeDiff = deliveryDate - today;
+//   const daysLeft = Math.ceil(timeDiff / (1000 * 60 * 60 * 24)); // Convert milliseconds to days
+//   return daysLeft;
+// };
+// // Get all projects daysLeft include. day let assiending to
+// const projects = await prisma.project.findMany({
+//   where: {
+//     OR: [
+//       {
+//         //assiding order date between start and end of current month
+//         date: {
+//           gte: startOfCurrentMonth,
+//           lte: endOfCurrentMonth,
+//         },
+        
+        
+//       },
+//       {
+//         ops_status:{
+//           in: ["revision", "in progress", "pending"],
+//         }         
+//       },
+      
+//       //  status: "revision" or "in progress"
+//       {
+//         status: {
+//           in: ["revision","in progress","pending"],
+//         },
+//       }
+
+    
+
+//     ],
+
+//   },
+//   include: {
+//     department: true,
+//     team_member: {
+//       include: {
+//         profile: true,
+//       },
+//     },
+//   },
+// });
+
+
+
+//     io.emit("allProjects"); // Emit all projects to the client
+// await totalOrdersCardData(io); // Emit the total order card data
+//     return res.status(200).json({
+//       message: "Projects retrieved successfully.",
+//       projects: projects.map((project) => ({
+//         ...project,
+//         daysLeft: daysLeft(project.deli_last_date), // Calculate days left for each project
+//       })),
+    
+   
+//     });
+
+    
+
+//   } catch (error) {
+//     res
+//       .status(500)
+//       .json({ error: "An error occurred while fetching projects." });
+//     console.error("Error fetching projects:", error);
+//   }
+// };
+exports.getAllProjects = async (req, res, io) => {
+  try {
     const currentDate = new Date();
     const startOfCurrentMonth = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
     const endOfCurrentMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0);
     endOfCurrentMonth.setHours(23, 59, 59, 999);
 
+    // Updated daysLeft function to show overdue message
+    const daysLeft = (deli_last_date) => {
+      const today = new Date();
+      const deliveryDate = new Date(deli_last_date);
+      const timeDiff = deliveryDate - today;
+      const daysLeft = Math.floor(timeDiff / (1000 * 60 * 60 * 24)); // Convert milliseconds to days
+
+      // If overdue, display it
+      if (daysLeft < 0) {
+        return `Overdue by ${Math.abs(daysLeft)} days`;
+      }
+
+      return `${daysLeft} days left`; // Otherwise, show remaining days
+    };
 
     const projects = await prisma.project.findMany({
       where: {
@@ -170,13 +273,10 @@ exports.getAllProjects = async (req, res) => {
             },
           },
           {
-            ops_status: "revision"           
+            status: {
+              in: ["revision", "in progress", "pending"],
+            },
           },
-          {
-            status: "revision",
-          }
-        
-
         ],
       },
       include: {
@@ -189,20 +289,91 @@ exports.getAllProjects = async (req, res) => {
       },
     });
 
+
+    // Sort projects by the delivery date (those with earlier dates first)
+    projects.sort((a, b) => {
+      const dateA = new Date(a.deli_last_date);
+      const dateB = new Date(b.deli_last_date);
+
+      // Sort by delivery date (earliest first)
+      return dateA - dateB; 
+    });
+    const formatDate = (date) =>
+      date ? new Date(date).toISOString().split("T")[0] : null;
+    
+  
+  console.log("projects", projects); // Debugging the fetched projects
+
+
+ 
+
+
+
+    //extract client name from project name
+    const projectsWithClientNames = projects.map((project) => {
+      const clientName = project.project_name.split("-")[0]; // Extract client name from project name
+      return {
+        ...project,
+        clientName, // Add client name to the project object
+      };
+    });
+  //deli_last_date without iso format
+  const projectsWithFormattedDates = projectsWithClientNames.map((project) => ({
+    ...project,
+    date: formatDate(project.date),
+    deli_last_date: formatDate(project.deli_last_date),
+  }));
+ 
     return res.status(200).json({
       message: "Projects retrieved successfully.",
-      projects,
+      projects: projectsWithFormattedDates.map((project) => ({
+        ...project,
+        daysLeft: daysLeft(project.deli_last_date), // Calculate and add daysLeft
+      })),
     });
 
-
   } catch (error) {
-    res
-      .status(500)
-      .json({ error: "An error occurred while fetching projects." });
     console.error("Error fetching projects:", error);
+    res.status(500).json({ error: "An error occurred while fetching projects." });
   }
 };
 
+
+
+exports.totalOrderCard = async (req, res) => {
+  try{
+    const currentDate = new Date();
+    const startOfCurrentMonth = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
+    const endOfCurrentMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0);
+    endOfCurrentMonth.setHours(23, 59, 59, 999);
+  
+    const totalOrdersAmount = await prisma.project.aggregate({
+      where: {
+        date: {
+          gte: startOfCurrentMonth,
+          lte: endOfCurrentMonth,
+        },
+      },
+      _sum: {
+        after_fiverr_amount: true,
+        after_Fiverr_bonus: true
+      }
+    });
+  
+    return res.status(200).json({
+      message: "Total orders amount retrieved successfully.",
+      totalOrdersAmount,
+    });
+  
+  }
+  catch (error) {
+    console.error("Error fetching total orders amount:", error);
+    return res.status(500).json({
+      error: "An error occurred while fetching total orders amount.",
+    });
+  }
+
+} 
 
 
 
@@ -216,6 +387,11 @@ exports.getProjectById = async (req, res) => {
       where: { id: Number(id) },
       include: {
         department: true,
+        team: {
+          include: {
+            team_member: true,
+          },
+        },
         team_member: {
           include: {
             profile: true,
@@ -280,19 +456,21 @@ exports.updateProject = async (req, res, io) => {
     }
 
     // Handle department name → department_id conversion
-    if (req.body.department) {
-      const departmentData = await prisma.department.findUnique({
-        where: { department_name: req.body.department },
-      });
+    // if (req.body.department) {
+    //   const departmentData = await prisma.department.findUnique({
+    //     where: { department_name: req.body.department },
+    //   });
 
-      if (!departmentData) {
-        return res.status(400).json({ error: "Invalid department name." });
-      }
+    //   if (!departmentData) {
+    //     return res.status(400).json({ error: "Invalid department name." });
+    //   }
 
-      // Replace department name with ID
-      req.body.department_id = departmentData.id;
-      delete req.body.department; // remove name to prevent Prisma error
-    }
+    //   // Replace department name with ID
+    //   req.body.department_id = departmentData.id;
+    //   delete req.body.department; // remove name to prevent Prisma error
+    // }
+
+
     // if req.body.order_amount is present then calculate after_fiverr_amount
     if (req.body.order_amount) {
       const after_fiverr_amount = req.body.order_amount * 0.8;
@@ -304,11 +482,27 @@ exports.updateProject = async (req, res, io) => {
       const after_Fiverr_bonus = req.body.bonus * 0.8;
       req.body.after_Fiverr_bonus = after_Fiverr_bonus;
     }
+
+    // if (req.body.team_name) {
+    //   // Find the team ID based on the team name
+    //   const teamData = await prisma.team.findUnique({
+    //     where: { team_name: req.body.team_name },
+    //   });
+    //   if (!teamData) {
+    //     return res.status(400).json({ error: "Invalid team name." });
+    //   }
+    //   req.body.team_id = teamData.id; // Set the team ID in the request body
+    //   delete req.body.team_name; // Remove the team name to prevent Prisma error
+    // }
     // Update the project
     const project = await prisma.project.update({
       where: { id: Number(id) },
       data: req.body,
     });
+
+console.log("req.body", req.body.team_id); // Debugging the updated project data
+    console.log("project", project); // Debugging the updated project data
+
 
     //send project data date in the proper format like yyyy-mm-dd
     const formatDate = (date) =>
@@ -322,6 +516,7 @@ exports.updateProject = async (req, res, io) => {
     console.log("updatedProject", updatedProject); // Real-time update to front end
     io.emit("projectUpdated", updatedProject);
     await emitSalesData(io);
+    await totalOrdersCardData(io); // Emit the total order card data
     res.status(200).json({ message: "Project updated successfully.", project });
   } catch (error) {
     console.error("Error updating project:", error);
@@ -624,4 +819,70 @@ exports.getProjectsByClientName = async (req, res) => {
     console.error("Error fetching projects:", err);
     return res.status(500).json({ error: "Internal Server Error" });
   }
+};
+
+
+//get all department names from department table
+exports.getAllDepartmentNames = async (req, res) => {
+  try {
+    const departments = await prisma.department.findMany({
+      select: {
+        department_name: true,
+      },
+    });
+
+    console.log("Department Names:", departments); // Debugging the department names
+  
+    return res.status(200).json({message: "Department names retrieved successfully.", departments });
+  } catch (error) {
+    console.error("Error fetching department names:", error);
+    return res.status(500).json({ error: "Internal Server Error" });
+  
+  }
+};
+
+
+
+
+
+exports.showallStatusRevisionProjects = async (req, res) => {
+  try {
+
+    //search by team member id and find her team details whixh project have status revision
+
+    //first seach whuch team he belong to
+
+    const teamMember = await prisma.team_member.findUnique({
+      where: { id: Number(req.params.id) },
+      include: {
+        team: true,
+      },
+    });
+
+    if (!teamMember) {
+      return res.status(404).json({ error: "Team member not found" });
+    }
+
+
+    const projects = await prisma.project.findMany({
+      where: {
+        team_id: teamMember.team.id,
+        status: "revision",
+      },
+    });
+    //extract client name from project name
+    const projectsWithClientNames = projects.map((project) => {
+      const clientName = project.project_name.split("-")[0]; // Extract client name from project name
+      return {
+        ...project,
+        clientName, // Add client name to the project object
+      };
+    });
+
+    return res.status(200).json({ projects: projectsWithClientNames });
+  } catch (err) {
+    console.error("Error fetching status revision projects:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+    
 };
