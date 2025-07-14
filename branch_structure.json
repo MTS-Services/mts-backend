@@ -1,0 +1,24 @@
+{
+  "default_branch": "main",
+  "branches": [
+    "Nayem",
+    "Shariarhosain-patch-1",
+    "development",
+    "main",
+    "sanny"
+  ],
+  "parent": {
+    "Nayem": "main",
+    "Shariarhosain-patch-1": "main",
+    "development": "main",
+    "main": null,
+    "sanny": "main"
+  },
+  "order": [
+    "main",
+    "Nayem",
+    "Shariarhosain-patch-1",
+    "development",
+    "sanny"
+  ]
+}
